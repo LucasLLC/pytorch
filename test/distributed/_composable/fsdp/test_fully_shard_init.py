@@ -23,6 +23,7 @@ from torch.distributed._tensor import (
     Replicate,
     Shard,
 )
+from torch.distributed._tensor.placement_types import _StridedShard
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp._init_utils import (
     _init_inter_node_process_group,
@@ -386,7 +387,9 @@ class TestFullyShardShardedParameterDTensor(FSDPTestMultiThread):
         )
         dp_mesh, tp_mesh = global_mesh["dp"], global_mesh["tp"]
         # Use odd dim sizes to test uneven shards
-        model = MLP(9, dim_multiplier=3)
+        # TODO change "mlp_dim" back to 8 when uneven sharding
+        # is supported for FSDP+TP
+        model = MLP(8, dim_multiplier=3)
         orig_params = [param.detach().clone() for param in model.parameters()]
         orig_param_names = [param_name for param_name, _ in model.named_parameters()]
         parallelize_module(
@@ -405,7 +408,10 @@ class TestFullyShardShardedParameterDTensor(FSDPTestMultiThread):
             self.assertEqual(sharded_param.size(), orig_param.size())
             self.assertEqual(sharded_param.stride(), orig_param.stride())
             if "in_proj" in orig_param_name:
-                expected_placements = (Shard(0), Shard(0))
+                expected_placements = (
+                    _StridedShard(0, split_factor=tp_mesh.size()),
+                    Shard(0),
+                )
             elif "out_proj" in orig_param_name and "weight" in orig_param_name:
                 expected_placements = (Shard(0), Shard(1))
             else:
@@ -577,7 +583,9 @@ class TestFullyShardMetaDeviceInit(FSDPTestMultiThread):
         dp_mesh, tp_mesh = global_mesh["dp"], global_mesh["tp"]
 
         # Test both even sharding (8) and uneven sharding (3)
-        for mlp_dim in (8, 3):
+        # TODO change "mlp_dim" back to (8, 3) when uneven sharding
+        # is supported for FSDP+TP
+        for mlp_dim in (8, 4):
             with torch.device("meta"):
                 model = MLP(mlp_dim, with_buffer=True)
                 for param in model.parameters():
