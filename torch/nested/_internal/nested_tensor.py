@@ -87,42 +87,47 @@ class NestedTensor(torch.Tensor):
         assert not isinstance(values, NestedTensor)
         assert values.device == offsets.device
 
-        # Query cache for the symint associated with offsets or lengths
-        # (create a new one if needed).
-        ragged_source = offsets if lengths is None else lengths
-        ragged_size = get_tensor_symint(ragged_source, coeff=1)
-        _ragged_idx = kwargs.get("_ragged_idx", 1)
-        B = offsets.shape[0] - 1
-        if lengths is not None:
-            assert B == lengths.shape[0]
+        from torch.fx.experimental.proxy_tensor import maybe_enable_thunkify
 
-        # subtract 1 to convert to values dim space
-        r = _ragged_idx - 1
-        _size = (B, *values.shape[:r], ragged_size, *values.shape[r + 1 :])
-        stride = values.stride()
-        _strides = (ragged_size * stride[r], *stride)
+        # This should be removed after
+        # https://github.com/pytorch/pytorch/pull/125941/ lands
+        with maybe_enable_thunkify():
+            # Query cache for the symint associated with offsets or lengths
+            # (create a new one if needed).
+            ragged_source = offsets if lengths is None else lengths
+            ragged_size = get_tensor_symint(ragged_source, coeff=1)
+            _ragged_idx = kwargs.get("_ragged_idx", 1)
+            B = offsets.shape[0] - 1
+            if lengths is not None:
+                assert B == lengths.shape[0]
 
-        r = torch.Tensor._make_wrapper_subclass(  # type: ignore[attr-defined]
-            cls,
-            _size,
-            _strides,
-            0,
-            torch.contiguous_format,
-            values.dtype,
-            torch.jagged,
-            values.device,
-            False,
-            kwargs.get("requires_grad", False),
-            "sizes",
-            False,
-            True,  # dispatch_layout
-            ks,
-            # don't try to calculate storage based on non-zero size
-            storage_size=values.untyped_storage().size(),
-        )
-        r._ragged_idx = _ragged_idx
-        r._size = _size
-        r._strides = _strides
+            # subtract 1 to convert to values dim space
+            r = _ragged_idx - 1
+            _size = (B, *values.shape[:r], ragged_size, *values.shape[r + 1 :])
+            stride = values.stride()
+            _strides = (ragged_size * stride[r], *stride)
+
+            r = torch.Tensor._make_wrapper_subclass(  # type: ignore[attr-defined]
+                cls,
+                _size,
+                _strides,
+                0,
+                torch.contiguous_format,
+                values.dtype,
+                torch.jagged,
+                values.device,
+                False,
+                kwargs.get("requires_grad", False),
+                "sizes",
+                False,
+                True,  # dispatch_layout
+                ks,
+                # don't try to calculate storage based on non-zero size
+                storage_size=values.untyped_storage().size(),
+            )
+            r._ragged_idx = _ragged_idx
+            r._size = _size
+            r._strides = _strides
 
         return r
 
